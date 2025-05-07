@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sfera con Singolarità Controllabile</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+            overflow: hidden;
+        }
+        h1 {
+            margin-bottom: 10px;
+            color: #00aaff;
+        }
+        p {
+            margin-top: 0;
+            margin-bottom: 15px; /* Ridotto un po' */
+            max-width: 700px; /* Aumentato per più testo */
+            line-height: 1.5;
+            color: #ccc;
+        }
+        #simulationCanvas {
+            border: 2px solid #00aaff;
+            background-color: #050515;
+            border-radius: 50%;
+            box-shadow: 0 0 20px #00aaff, 0 0 30px #0077cc inset;
+        }
+        .controls-container {
+            margin-top: 15px;
+            display: flex;
+            flex-wrap: wrap; /* Permette ai controlli di andare a capo */
+            justify-content: center; /* Centra i gruppi di controlli */
+            gap: 15px; /* Spazio tra i gruppi di controlli */
+            max-width: 800px; /* Limita la larghezza del contenitore dei controlli */
+        }
+        .controls {
+            padding: 8px 12px;
+            background-color: rgba(255,255,255,0.08);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column; /* Controlli impilati verticalmente */
+            align-items: center; /* Centra gli elementi nel singolo box di controllo */
+            min-width: 200px; /* Larghezza minima per ogni box */
+        }
+        .controls label {
+            margin-bottom: 5px; /* Spazio tra label e slider */
+            font-size: 0.9em;
+        }
+        .controls input[type="range"] {
+            vertical-align: middle;
+            width: 150px; /* Larghezza fissa per gli slider */
+        }
+        .controls span {
+            font-size: 0.85em;
+            min-width: 30px; /* Assicura spazio per il valore */
+            text-align: right;
+            margin-left: 5px;
+        }
+        .control-row { /* Per mettere slider e valore sulla stessa riga se necessario (non usato ora) */
+            display: flex;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sfera con Singolarità Controllabile</h1>
+    <p>
+        Simulazione di una micro-singolarità contenuta. Modifica i parametri sottostanti per osservare
+        diversi comportamenti delle particelle attratte, basati su una versione semplificata della
+        legge di gravitazione universale (F ~ 1/r²).
+    </p>
+    <canvas id="simulationCanvas"></canvas>
+
+    <div class="controls-container">
+        <div class="controls">
+            <label for="particleCount">Numero Particelle:</label>
+            <div><input type="range" id="particleCount" min="50" max="500" value="150" step="10"><span id="particleCountValue">150</span></div>
+        </div>
+        <div class="controls">
+            <label for="attractionForce">Forza Attrazione (G·M):</label>
+            <div><input type="range" id="attractionForce" min="500" max="20000" value="5000" step="100"><span id="attractionForceValue">5000</span></div>
+        </div>
+        <div class="controls">
+            <label for="tangentialSpeed">Velocità Tang. Iniziale:</label>
+            <div><input type="range" id="tangentialSpeed" min="0.1" max="3.0" value="0.8" step="0.1"><span id="tangentialSpeedValue">0.8</span></div>
+        </div>
+        <div class="controls">
+            <label for="dampingFactor">Smorzamento (0.9-0.999):</label>
+            <div><input type="range" id="dampingFactor" min="0.900" max="0.999" value="0.980" step="0.001"><span id="dampingFactorValue">0.980</span></div>
+        </div>
+        <div class="controls">
+            <label for="absorptionRadius">Raggio Assorbimento:</label>
+            <div><input type="range" id="absorptionRadius" min="2" max="20" value="5" step="1"><span id="absorptionRadiusValue">5</span></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let sphereRadius;
+        let centerX, centerY;
+        
+        let particles = [];
+        const PARTICLE_BASE_RADIUS = 1.5;
+        // let CENTRAL_SINGULARITY_RADIUS = 5; // Ora è absorptionRadiusSlider.value
+        const SOFTENING_CONSTANT_SQUARED = 25; // Per F = G*M / (r^2 + epsilon^2), evita forze infinite. Valore piccolo.
+
+        // Parametri controllabili e loro valori di default
+        let NUM_PARTICLES = 150;
+        let ATTRACTION_FORCE = 5000; // G*M combinato
+        let INITIAL_TANGENTIAL_SPEED = 0.8;
+        let DAMPING_FACTOR = 0.980;
+        let ABSORPTION_RADIUS = 5;
+
+
+        // Elementi del DOM per i controlli
+        const particleCountSlider = document.getElementById('particleCount');
+        const particleCountValueDisplay = document.getElementById('particleCountValue');
+        const attractionForceSlider = document.getElementById('attractionForce');
+        const attractionForceValueDisplay = document.getElementById('attractionForceValue');
+        const tangentialSpeedSlider = document.getElementById('tangentialSpeed');
+        const tangentialSpeedValueDisplay = document.getElementById('tangentialSpeedValue');
+        const dampingFactorSlider = document.getElementById('dampingFactor');
+        const dampingFactorValueDisplay = document.getElementById('dampingFactorValue');
+        const absorptionRadiusSlider = document.getElementById('absorptionRadius');
+        const absorptionRadiusValueDisplay = document.getElementById('absorptionRadiusValue');
+
+        function updateSliderValues() {
+            particleCountValueDisplay.textContent = NUM_PARTICLES = parseInt(particleCountSlider.value);
+            attractionForceValueDisplay.textContent = ATTRACTION_FORCE = parseFloat(attractionForceSlider.value);
+            tangentialSpeedValueDisplay.textContent = INITIAL_TANGENTIAL_SPEED = parseFloat(tangentialSpeedSlider.value);
+            dampingFactorValueDisplay.textContent = DAMPING_FACTOR = parseFloat(dampingFactorSlider.value);
+            absorptionRadiusValueDisplay.textContent = ABSORPTION_RADIUS = parseFloat(absorptionRadiusSlider.value);
+        }
+        
+        function setupEventListeners() {
+            particleCountSlider.addEventListener('input', () => {
+                NUM_PARTICLES = parseInt(particleCountSlider.value);
+                particleCountValueDisplay.textContent = NUM_PARTICLES;
+                resetSimulation(); 
+            });
+            attractionForceSlider.addEventListener('input', () => {
+                ATTRACTION_FORCE = parseFloat(attractionForceSlider.value);
+                attractionForceValueDisplay.textContent = ATTRACTION_FORCE;
+            });
+            tangentialSpeedSlider.addEventListener('input', () => {
+                INITIAL_TANGENTIAL_SPEED = parseFloat(tangentialSpeedSlider.value);
+                tangentialSpeedValueDisplay.textContent = INITIAL_TANGENTIAL_SPEED.toFixed(1);
+                 // Se cambio la velocità iniziale, è meglio resettare per vedere l'effetto subito
+                resetSimulation();
+            });
+            dampingFactorSlider.addEventListener('input', () => {
+                DAMPING_FACTOR = parseFloat(dampingFactorSlider.value);
+                dampingFactorValueDisplay.textContent = DAMPING_FACTOR.toFixed(3);
+            });
+            absorptionRadiusSlider.addEventListener('input', () => {
+                ABSORPTION_RADIUS = parseFloat(absorptionRadiusSlider.value);
+                absorptionRadiusValueDisplay.textContent = ABSORPTION_RADIUS;
+            });
+        }
+
+
+        function resizeCanvas() {
+            const size = Math.min(window.innerWidth * 0.9, window.innerHeight * 0.6, 500); // Ridotto un po' per far spazio ai controlli
+            canvas.width = size;
+            canvas.height = size;
+            sphereRadius = size / 2 - 10; 
+            centerX = canvas.width / 2;
+            centerY = canvas.height / 2;
+            resetSimulation(); 
+        }
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                const angle = Math.random() * Math.PI * 2;
+                const startRadius = sphereRadius * (0.85 + Math.random() * 0.14); // Più distribuite, non solo bordo
+                this.x = centerX + Math.cos(angle) * startRadius;
+                this.y = centerY + Math.sin(angle) * startRadius;
+                
+                // Velocità tangenziale + una piccola componente radiale casuale
+                const tangSpeed = INITIAL_TANGENTIAL_SPEED * (0.8 + Math.random() * 0.4); // Variazione
+                this.vx = Math.sin(angle) * tangSpeed * (Math.random() > 0.5 ? 1 : -1); 
+                this.vy = -Math.cos(angle) * tangSpeed * (Math.random() > 0.5 ? 1 : -1);
+                
+                // Piccola spinta radiale (verso l'interno o l'esterno)
+                this.vx += (Math.random() - 0.5) * 0.1;
+                this.vy += (Math.random() - 0.5) * 0.1;
+
+                this.radius = PARTICLE_BASE_RADIUS * (0.7 + Math.random() * 0.6);
+                this.life = 150 + Math.random() * 250; 
+                this.alpha = 1;
+
+                const blueComponent = 150 + Math.floor(Math.random() * 106); 
+                const greenComponent = Math.min(255, blueComponent + Math.floor(Math.random()*50));
+                this.color = `rgba(${150+Math.floor(Math.random()*50)}, ${greenComponent}, ${blueComponent}, ${this.alpha})`;
+            }
+
+            update() {
+                this.life--;
+                if (this.life <= 0) {
+                    const distToCenterSq = (this.x - centerX)**2 + (this.y - centerY)**2;
+                    if (distToCenterSq < (sphereRadius * 0.2)**2 && Math.random() < 0.1) { 
+                        createFlash(this.x, this.y);
+                    }
+                    this.reset();
+                }
+
+                const dx = centerX - this.x;
+                const dy = centerY - this.y;
+                const distSq = dx * dx + dy * dy; // Distanza al quadrato, più efficiente
+                const dist = Math.sqrt(distSq);
+                
+                if (dist < 1) { // Evita problemi se una particella finisce esattamente al centro
+                    this.reset();
+                    return;
+                }
+
+                // Legge di Gravitazione Universale (semplificata)
+                // F = G*M / (r^2 + epsilon^2) dove ATTRACTION_FORCE = G*M (massa particella = 1)
+                // epsilon^2 è SOFTENING_CONSTANT_SQUARED
+                const forceMagnitude = ATTRACTION_FORCE / (distSq + SOFTENING_CONSTANT_SQUARED);
+                
+                // Accelerazione (ax = Fx/m, ay = Fy/m. Con m=1, a = F)
+                // Moltiplichiamo per un piccolo deltaTime implicito per stabilità
+                const timeStepFactor = 0.005; // Scala l'effetto della forza per frame
+                this.vx += (dx / dist) * forceMagnitude * timeStepFactor;
+                this.vy += (dy / dist) * forceMagnitude * timeStepFactor;
+
+                this.vx *= DAMPING_FACTOR;
+                this.vy *= DAMPING_FACTOR;
+
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                const currentDistToCenter = Math.sqrt((this.x - centerX)**2 + (this.y - centerY)**2);
+                if (currentDistToCenter + this.radius > sphereRadius) {
+                   // Se tocca il bordo esterno, inverti la componente radiale della velocità (rimbalzo smorzato)
+                   const normalX = (this.x - centerX) / currentDistToCenter;
+                   const normalY = (this.y - centerY) / currentDistToCenter;
+                   const dotProduct = this.vx * normalX + this.vy * normalY;
+                   this.vx -= 1.5 * dotProduct * normalX; // 1.5 per un rimbalzo leggero
+                   this.vy -= 1.5 * dotProduct * normalY;
+                   
+                   // Sposta leggermente indietro per evitare che si incastri
+                   this.x = centerX + normalX * (sphereRadius - this.radius);
+                   this.y = centerY + normalY * (sphereRadius - this.radius);
+                }
+                
+                if (currentDistToCenter < ABSORPTION_RADIUS) {
+                    if (Math.random() < 0.3) createFlash(this.x, this.y, true); 
+                    this.reset();
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color.replace(/[\d\.]+\)$/g, `${Math.max(0, this.life / 100, 0.3)})`); // Alpha legato alla vita
+                ctx.fill();
+            }
+        }
+
+        let flashes = [];
+        function createFlash(x, y, intense = false) {
+            flashes.push({
+                x: x,
+                y: y,
+                radius: intense ? ABSORPTION_RADIUS * 2.5 : ABSORPTION_RADIUS * 1.2,
+                alpha: 1,
+                color: intense ? `rgba(255, 255, 220, 0.9)` : `rgba(200, 220, 255, 0.7)`
+            });
+        }
+
+        function drawFlashes() {
+            for (let i = flashes.length - 1; i >= 0; i--) {
+                const flash = flashes[i];
+                ctx.beginPath();
+                ctx.arc(flash.x, flash.y, flash.radius * (flash.alpha * 0.5 + 0.5) , 0, Math.PI * 2); 
+                ctx.fillStyle = flash.color.replace(/[\d\.]+\)$/g, `${flash.alpha * 0.8})`); 
+                ctx.fill();
+                flash.alpha -= 0.06; 
+                if (flash.alpha <= 0) {
+                    flashes.splice(i, 1);
+                }
+            }
+        }
+        
+        function resetSimulation() {
+            particles = [];
+            if (centerX === undefined || centerY === undefined || sphereRadius === undefined) {
+                return;
+            }
+            const currentNumParticles = particles.length;
+            if (NUM_PARTICLES > currentNumParticles) {
+                for (let i = 0; i < NUM_PARTICLES - currentNumParticles; i++) {
+                    particles.push(new Particle());
+                }
+            } else if (NUM_PARTICLES < currentNumParticles) {
+                particles.splice(NUM_PARTICLES);
+            }
+            // Forzo un reset completo per applicare nuovi parametri come la velocità iniziale
+            particles = [];
+             for (let i = 0; i < NUM_PARTICLES; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        let animationFrameId = null; 
+        function animate() {
+            animationFrameId = requestAnimationFrame(animate); 
+            
+            ctx.fillStyle = 'rgba(5, 5, 21, 0.2)'; // Leggermente più trasparente per scie meno marcate
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Singolarità centrale (solo visuale, il raggio di assorbimento è ABSORPTION_RADIUS)
+            const visualSingularityRadius = Math.max(2, ABSORPTION_RADIUS / 2);
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, visualSingularityRadius, 0, Math.PI * 2);
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, visualSingularityRadius * 1.5);
+            gradient.addColorStop(0, 'rgba(200, 200, 255, 0.3)'); 
+            gradient.addColorStop(0.5, 'rgba(20, 20, 50, 0.8)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 1)'); 
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, visualSingularityRadius * 2.0, 0, Math.PI * 2);
+            const haloGradient = ctx.createRadialGradient(centerX, centerY, visualSingularityRadius, centerX, centerY, visualSingularityRadius * 2.0);
+            haloGradient.addColorStop(0, 'rgba(100, 150, 255, 0.2)');
+            haloGradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
+            ctx.fillStyle = haloGradient;
+            ctx.fill();
+
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+
+            drawFlashes();
+        }
+
+        // Inizializzazione
+        window.addEventListener('resize', () => {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            resizeCanvas(); // Questo chiama resetSimulation
+            animate(); 
+        });
+        
+        // Imposta i valori iniziali degli slider e delle variabili dai valori di default JS
+        particleCountSlider.value = NUM_PARTICLES;
+        attractionForceSlider.value = ATTRACTION_FORCE;
+        tangentialSpeedSlider.value = INITIAL_TANGENTIAL_SPEED;
+        dampingFactorSlider.value = DAMPING_FACTOR;
+        absorptionRadiusSlider.value = ABSORPTION_RADIUS;
+        updateSliderValues(); // Aggiorna i display e le variabili globali
+        setupEventListeners(); // Configura gli ascoltatori di eventi per gli slider
+
+        resizeCanvas(); 
+        animate();      
+    </script>
+</body>
+</html>
